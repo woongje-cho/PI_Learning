@@ -10,6 +10,54 @@ This project evaluates the performance of VLA models in various robot simulation
 
 π₀ is a Vision-Language-Action model developed by Physical Intelligence. It takes images and natural language instructions as input and predicts robot actions. Built on a pre-trained Vision-Language Model (PaliGemma), it uses flow matching to generate continuous actions.
 
+## Repository Structure
+
+```
+PI_Learning/
+├── README.md
+├── modified_files/              # Modified source files (copy to openpi)
+│   ├── aloha_sim/
+│   │   ├── compose.yml          # XLA crash fix
+│   │   ├── env.py               # High-res image capture
+│   │   └── saver.py             # Video quality improvement
+│   └── libero/
+│       └── compose.yml          # XLA crash fix
+├── patches/                     # Git diff patches
+│   ├── aloha_sim.patch
+│   └── libero_compose.patch
+├── videos/                      # Benchmark result videos
+│   └── libero/                  # 44 rollout videos (success/failure)
+└── results/
+    └── benchmark_summary.md     # Detailed results
+```
+
+## Quick Start
+
+### 1. Clone OpenPI
+```bash
+git clone https://github.com/Physical-Intelligence/openpi.git
+cd openpi
+git submodule update --init --recursive
+```
+
+### 2. Apply Our Modifications
+```bash
+# Copy modified files (recommended)
+cp PI_Learning/modified_files/libero/compose.yml openpi/examples/libero/
+cp PI_Learning/modified_files/aloha_sim/* openpi/examples/aloha_sim/
+
+# Or apply patches
+cd openpi
+git apply ../PI_Learning/patches/libero_compose.patch
+git apply ../PI_Learning/patches/aloha_sim.patch
+```
+
+### 3. Run Benchmarks
+```bash
+xhost +local:docker
+SERVER_ARGS="--env LIBERO" docker compose -f examples/libero/compose.yml up
+```
+
 ## Experiment Environment
 
 | Component | Specification |
@@ -28,68 +76,45 @@ LIBERO is a benchmark containing various manipulation tasks in tabletop environm
 
 | Task Suite | Success Rate | Episodes | Description |
 |------------|--------------|----------|-------------|
-| **libero_spatial** | **96.7%** | 29/30 | Spatial relationship understanding (e.g., "move the bowl on the left") |
-| **libero_object** | **97.3%** | 109/112 | Object recognition (e.g., "put the tomato sauce in the basket") |
+| **libero_spatial** | **96.7%** | 29/30 | Spatial relationship understanding |
+| **libero_object** | **97.3%** | 109/112 | Object recognition |
 | **libero_goal** | **97.4%** | 419/430 | Goal-oriented tasks |
 
 ### ALOHA Sim Benchmark
-
-ALOHA is a dual-arm robot simulation environment.
 
 | Task | Resolution | Description |
 |------|------------|-------------|
 | Transfer Cube | 640x480 | Transfer a cube from one hand to the other |
 
-## Work Completed
+### Sample Videos
 
-### 1. Environment Setup & Bug Fixes
+Check the `videos/libero/` folder for 44 rollout videos showing both successful and failed attempts:
+- `rollout_*_success.mp4` - Successful task completions
+- `rollout_*_failure.mp4` - Failed attempts for analysis
 
-#### XLA Autotuning Crash Fix
-XLA ptxas crashes occurred on RTX 4090. Fixed by adding the following environment variable:
+## Modifications Made
+
+### 1. XLA Autotuning Crash Fix
+
+XLA ptxas crashes occurred on RTX 4090. Fixed by adding environment variable:
 
 ```yaml
-# Added to compose.yml
 environment:
   - XLA_FLAGS=--xla_gpu_autotune_level=0
 ```
 
-**Modified files:**
-- `examples/libero/compose.yml`
-- `examples/aloha_sim/compose.yml`
+**Files:** `modified_files/libero/compose.yml`, `modified_files/aloha_sim/compose.yml`
 
 ### 2. Video Quality Improvement (ALOHA Sim)
 
-By default, low-quality videos resized to 224x224 were saved. Modified to save high-quality videos at original resolution (640x480).
+Improved video quality from 224x224 to 640x480 resolution with better encoding.
 
-**Modified files:**
+**Files:** `modified_files/aloha_sim/env.py`, `modified_files/aloha_sim/saver.py`
 
-`examples/aloha_sim/env.py`:
-```python
-# Store original high-resolution image separately
-img_raw_uint8 = image_tools.convert_to_uint8(img_raw)
-return {
-    "state": gym_obs["agent_pos"],
-    "images": {"cam_high": img},
-    "images_raw": {"cam_high": img_raw_uint8},  # High-res for video
-}
-```
-
-`examples/aloha_sim/saver.py`:
-```python
-# Prioritize high-res image + quality improvement
-if "images_raw" in observation:
-    im = observation["images_raw"]["cam_high"]
-# ...
-imageio.mimwrite(out_path, ..., quality=9, output_params=["-crf", "18"])
-```
-
-**Result:** Video resolution 224x224 → 640x480, bitrate improved 10x
-
-### 3. Running Benchmarks
+## Running Different Benchmarks
 
 ```bash
 # LIBERO Spatial (default)
-xhost +local:docker
 SERVER_ARGS="--env LIBERO" docker compose -f examples/libero/compose.yml up
 
 # LIBERO Object
@@ -100,101 +125,61 @@ docker compose -f examples/libero/compose.yml up
 CLIENT_ARGS="--args.task-suite-name libero_goal" SERVER_ARGS="--env LIBERO" \
 docker compose -f examples/libero/compose.yml up
 
+# LIBERO 10 (10 diverse tasks, ~45 min)
+CLIENT_ARGS="--args.task-suite-name libero_10" SERVER_ARGS="--env LIBERO" \
+docker compose -f examples/libero/compose.yml up
+
+# LIBERO 90 (90 diverse tasks, ~6 hours)
+CLIENT_ARGS="--args.task-suite-name libero_90" SERVER_ARGS="--env LIBERO" \
+docker compose -f examples/libero/compose.yml up
+
 # ALOHA Sim
 SERVER_ARGS="--env ALOHA_SIM" docker compose -f examples/aloha_sim/compose.yml up
 ```
 
-## Saved Results
-
-```
-/home/woong/openpi/
-├── data/
-│   ├── libero/videos/          # LIBERO benchmark videos (44 files)
-│   │   ├── rollout_*_success.mp4
-│   │   └── rollout_*_failure.mp4
-│   └── aloha_sim/videos/       # ALOHA simulation videos
-└── ~/.cache/openpi/            # Model checkpoint cache
-    ├── pi05_libero/ (11.6GB)   # π₀.5 model for LIBERO
-    └── pi0_aloha_sim/ (6.0GB)  # π₀ model for ALOHA
-```
-
 ## Future Experiment Ideas
 
-### 1. Additional Benchmarks
+### 1. Model Fine-tuning
 
 ```bash
-# LIBERO 10 - 10 diverse tasks (~45 min)
-CLIENT_ARGS="--args.task-suite-name libero_10" SERVER_ARGS="--env LIBERO" \
-docker compose -f examples/libero/compose.yml up
-
-# LIBERO 90 - 90 diverse tasks (~6 hours)
-CLIENT_ARGS="--args.task-suite-name libero_90" SERVER_ARGS="--env LIBERO" \
-docker compose -f examples/libero/compose.yml up
-```
-
-### 2. Other Simulation Environments
-
-| Environment | Description | Requirements |
-|-------------|-------------|--------------|
-| ALOHA Real | Physical ALOHA robot | Hardware required |
-| DROID | General-purpose robot manipulation | Hardware required |
-| UR5 | Industrial robot arm | Hardware required |
-
-### 3. Model Fine-tuning
-
-OpenPI supports fine-tuning with custom datasets:
-
-```bash
-# Data preparation
-XLA_FLAGS=--xla_gpu_autotune_level=0 uv run scripts/compute_norm_stats.py --config-name pi0_aloha_sim
-
-# Run fine-tuning
 XLA_FLAGS=--xla_gpu_autotune_level=0 uv run scripts/train.py \
   pi0_aloha_sim \
   --exp-name=my_experiment \
   --overrides training.num_train_steps=30000
 ```
 
-### 4. Adding New Environments
+### 2. Prompt Engineering
 
-New simulation environments can be added by following the LeRobot dataset format:
-
-1. Collect data from the environment
-2. Convert to LeRobot format
-3. Fine-tune the model with the data
-4. Evaluate in the new environment
-
-### 5. Prompt Engineering
-
-VLA models accept natural language instructions. Experiment with different prompt styles:
-
+Experiment with different instruction styles:
 ```python
-# Basic prompt
+# Basic
 "pick up the red cube and place it on the plate"
 
-# Detailed prompt
+# Detailed
 "carefully grasp the red cube from the table, lift it up, and gently place it in the center of the white plate"
 
-# Step-by-step prompt
+# Step-by-step
 "Step 1: Move to the red cube. Step 2: Grasp it. Step 3: Place on plate."
 ```
 
-### 6. Failure Case Analysis
+### 3. Failure Case Analysis
 
-Analyze the saved failure videos to:
-- Identify patterns in failure situations
-- Measure failure rates for specific objects/positions
-- Distinguish between grasp failures vs placement failures
+Analyze `videos/libero/*_failure.mp4` to identify:
+- Grasp failure patterns
+- Placement error patterns
+- Collision scenarios
 
-### 7. Performance Optimization
+### 4. New Environments
 
-```bash
-# Adjust batch size
-SERVER_ARGS="--env LIBERO --batch-size 4"
+Add custom environments using LeRobot dataset format.
 
-# Use different precision
-SERVER_ARGS="--env LIBERO --precision bf16"
-```
+## Troubleshooting
+
+| Error | Solution |
+|-------|----------|
+| `ptxas exited with non-zero error code -6` | Add `XLA_FLAGS=--xla_gpu_autotune_level=0` |
+| `Checkpoint not found for environment` | Specify `SERVER_ARGS="--env LIBERO"` |
+| `could not select device driver` | Install `nvidia-container-toolkit` |
 
 ## References
 
@@ -203,26 +188,6 @@ SERVER_ARGS="--env LIBERO --precision bf16"
 - [LIBERO Benchmark](https://github.com/Lifelong-Robot-Learning/LIBERO)
 - [ALOHA Project](https://tonyzhaozh.github.io/aloha/)
 
-## Troubleshooting
-
-### XLA ptxas Crash
-```
-error: ptxas exited with non-zero error code -6
-```
-**Solution:** Add `XLA_FLAGS=--xla_gpu_autotune_level=0` environment variable
-
-### Wrong Checkpoint Loaded
-```
-Error: Checkpoint not found for environment
-```
-**Solution:** Specify `SERVER_ARGS="--env LIBERO"` or `"--env ALOHA_SIM"`
-
-### Docker GPU Access Error
-```
-Error: could not select device driver
-```
-**Solution:** Install `nvidia-container-toolkit` and restart Docker
-
 ## License
 
-This project is created for educational and research purposes. OpenPI is licensed under Apache 2.0.
+This project is for educational and research purposes. OpenPI is licensed under Apache 2.0.
