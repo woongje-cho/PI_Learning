@@ -1,0 +1,12 @@
+diff --git a/examples/libero/compose.yml b/examples/libero/compose.yml
+index 253f196..e5f5ce2 100644
+--- a/examples/libero/compose.yml
++++ b/examples/libero/compose.yml
+@@ -46,6 +46,7 @@ services:
+       - SERVER_ARGS
+       - OPENPI_DATA_HOME=/openpi_assets
+       - IS_DOCKER=true
++      - XLA_FLAGS=--xla_gpu_autotune_level=0
+ 
+     # Comment out this block if not running on a machine with GPUs.
+     deploy:

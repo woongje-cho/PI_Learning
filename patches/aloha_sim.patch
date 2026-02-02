@@ -1,0 +1,61 @@
+diff --git a/examples/aloha_sim/compose.yml b/examples/aloha_sim/compose.yml
+index c56e4de..f33ba40 100644
+--- a/examples/aloha_sim/compose.yml
++++ b/examples/aloha_sim/compose.yml
+@@ -31,6 +31,7 @@ services:
+       - SERVER_ARGS
+       - OPENPI_DATA_HOME=/openpi_assets
+       - IS_DOCKER=true
++      - XLA_FLAGS=--xla_gpu_autotune_level=0
+ 
+     # Comment out this block if not running on a machine with GPUs.
+     deploy:
+diff --git a/examples/aloha_sim/env.py b/examples/aloha_sim/env.py
+index af2d5b6..f546044 100644
+--- a/examples/aloha_sim/env.py
++++ b/examples/aloha_sim/env.py
+@@ -45,12 +45,16 @@ class AlohaSimEnvironment(_environment.Environment):
+         self._episode_reward = max(self._episode_reward, reward)
+ 
+     def _convert_observation(self, gym_obs: dict) -> dict:
+-        img = gym_obs["pixels"]["top"]
+-        img = image_tools.convert_to_uint8(image_tools.resize_with_pad(img, 224, 224))
++        img_raw = gym_obs["pixels"]["top"]  # Original high-res image
++        img = image_tools.convert_to_uint8(image_tools.resize_with_pad(img_raw, 224, 224))
+         # Convert axis order from [H, W, C] --> [C, H, W]
+         img = np.transpose(img, (2, 0, 1))
+ 
++        # Keep original high-res image for video recording
++        img_raw_uint8 = image_tools.convert_to_uint8(img_raw)
++
+         return {
+             "state": gym_obs["agent_pos"],
+             "images": {"cam_high": img},
++            "images_raw": {"cam_high": img_raw_uint8},  # High-res for video
+         }
+diff --git a/examples/aloha_sim/saver.py b/examples/aloha_sim/saver.py
+index bd7f2c5..1390c87 100644
+--- a/examples/aloha_sim/saver.py
++++ b/examples/aloha_sim/saver.py
+@@ -22,8 +22,12 @@ class VideoSaver(_subscriber.Subscriber):
+ 
+     @override
+     def on_step(self, observation: dict, action: dict) -> None:
+-        im = observation["images"]["cam_high"]  # [C, H, W]
+-        im = np.transpose(im, (1, 2, 0))  # [H, W, C]
++        # Use high-res raw image if available, otherwise fall back to model input
++        if "images_raw" in observation:
++            im = observation["images_raw"]["cam_high"]  # Already [H, W, C]
++        else:
++            im = observation["images"]["cam_high"]  # [C, H, W]
++            im = np.transpose(im, (1, 2, 0))  # [H, W, C]
+         self._images.append(im)
+ 
+     @override
+@@ -37,4 +41,6 @@ class VideoSaver(_subscriber.Subscriber):
+             out_path,
+             [np.asarray(x) for x in self._images[:: self._subsample]],
+             fps=50 // max(1, self._subsample),
++            quality=9,  # Higher quality (1-10, 10 is best)
++            output_params=["-crf", "18"],  # Lower CRF = higher quality (0-51, 18 is visually lossless)
+         )
